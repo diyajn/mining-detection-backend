@@ -1,0 +1,25 @@
+# FastAPI Backend Requirements
+# Install with: pip install -r requirements.txt
+
+# ===== WEB FRAMEWORK =====
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6  # For file uploads
+
+# ===== MACHINE LEARNING =====
+tensorflow>=2.16.1
+numpy>=1.26.4
+pillow==10.0.0
+
+
+# ===== DATA MODELS =====
+pydantic==2.4.2
+
+# ===== OPTIONAL: PostgreSQL (if you want to upgrade from SQLite) =====
+# Uncomment these if using PostgreSQL instead of SQLite:
+# psycopg2-binary==2.9.9
+# sqlalchemy==2.0.23
+
+# ===== OPTIONAL: For production deployment =====
+# gunicorn==21.2.0  # Production server
+# python-dotenv==1.0.0  # Environment variables
