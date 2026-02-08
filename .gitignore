@@ -1,6 +1,17 @@
-
-models/*.h5
-*.h5
+# Python
 __pycache__/
-.env
+*.pyc
 
+# Virtual env
+venv/
+.env/
+
+# ML models
+models/*.h5
+
+# Databases
+*.db
+*.sqlite
+
+# OS
+.DS_Store

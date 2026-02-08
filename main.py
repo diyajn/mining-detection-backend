@@ -9,13 +9,25 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime, date
-import tensorflow as tf
-from tensorflow.keras.models import load_model
+#import tensorflow as tf
+#from tensorflow.keras.models import load_model
 import numpy as np
 from PIL import Image
 import io
 import os
 import base64
+
+from tensorflow.keras.models import load_model as tf_load_model
+import model_loader  # just import, do NOT call
+app = FastAPI()
+model = None
+
+
+
+
+
+
+
 
 # Import our modules (we'll create these)
 from database import (
@@ -142,20 +154,25 @@ async def startup_event():
     # Initialize database
     init_db()
     print("✅ Database initialized")
+
+    # ⬇️ ENSURE MODEL EXISTS (IMPORTANT)
+    try:
+        import model_loader
+        model_loader.ensure_model()
+        print("✅ Model file verified")
+    except Exception as e:
+        print(f"❌ Failed to download model: {e}")
+        return
     
-    # Load ML model
-    if os.path.exists(MODEL_PATH):
-        try:
-            model = load_model(MODEL_PATH)
-            print(f"✅ Model loaded from: {MODEL_PATH}")
-            print(f"   Input shape: {model.input_shape}")
-            print(f"   Output shape: {model.output_shape}")
-        except Exception as e:
-            print(f"❌ Error loading model: {e}")
-            print("   Server will start but detection will not work!")
-    else:
-        print(f"❌ Model not found at: {MODEL_PATH}")
-        print("   Please download your trained model and update MODEL_PATH")
+    # ⬇️ Load ML model
+    try:
+        model = tf_load_model(MODEL_PATH)
+        print(f"✅ Model loaded from: {MODEL_PATH}")
+        print(f"   Input shape: {model.input_shape}")
+        print(f"   Output shape: {model.output_shape}")
+    except Exception as e:
+        print(f"❌ Error loading model: {e}")
+        print("   Server will start but detection will not work!")
     
     print("\n🎯 API Server Ready!")
     print("📚 API Docs: http://localhost:8000/api/docs")
