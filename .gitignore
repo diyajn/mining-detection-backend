@@ -1,9 +1,2 @@
 
-__pycache__/
-*.pyc
-*.db
-*.h5
-*.keras
-models/
-test-images/
-.env
+models/*.h5
