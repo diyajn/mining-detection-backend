@@ -21,3 +21,5 @@ models/*.h5
 test-images/
 auto_downloads/
 reports/
+
+.env
