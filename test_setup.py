@@ -31,8 +31,8 @@ for file in files_to_check:
         all_files_exist = False
 
 # Check model
-model_path = "models/mining_detector.h5"
-alt_model_path = "../models/mining_detector.h5"
+model_path = "models/mining_detector_final.h5"
+alt_model_path = "../models/mining_detector_final.h5"
 
 if os.path.exists(model_path):
     print(f"  ✅ {model_path}")

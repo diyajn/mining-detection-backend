@@ -1,8 +1,9 @@
 import os
 import gdown
 
-MODEL_PATH = "models/mining_detector.h5"
-MODEL_URL = "https://drive.google.com/uc?id=1DIU0L36frr4P6d_Ry_JW9LMuivL-x-rY"  # replace ID
+MODEL_PATH = "models/mining_detector_final.h5"
+MODEL_URL = "https://drive.google.com/uc?id=1ME0jeuZIinzfuCkSFiCubqswVFuOSspz"  # replace ID
+
 
 def ensure_model():
     os.makedirs("models", exist_ok=True)

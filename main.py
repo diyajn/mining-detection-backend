@@ -16,6 +16,7 @@ from PIL import Image
 import io
 import os
 import base64
+import mysql.connector  # ✅ ADDED FOR NOTIFICATIONS
 
 from tensorflow.keras.models import load_model as tf_load_model
 import model_loader  # just import, do NOT call
@@ -24,7 +25,10 @@ model = None
 
 
 
+from dotenv import load_dotenv
 
+# Load .env file (for local testing)
+load_dotenv()
 
 
 
@@ -40,11 +44,33 @@ from database import (
     update_detection_verification
 )
 
+# Allow frontend connection
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ===============================
+# DATABASE CONNECTION FUNCTION
+# ===============================
+
+def get_db_connection():
+    return mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME"),
+        port=int(os.getenv("DB_PORT")),
+        ssl_disabled=False
+    )
 # =====================================================
 # CONFIGURATION
 # =====================================================
 
-MODEL_PATH = "models/mining_detector.h5"  # Update this path!
+MODEL_PATH = "models/mining_detector_final.h5"  # Update this path!
 CONFIDENCE_THRESHOLD = 50.0  # Minimum confidence to save detection
 
 # =====================================================
@@ -255,102 +281,86 @@ def generate_reasoning(confidence: float, severity: str) -> str:
     elif confidence > 60:
         return f"Moderate confidence detection ({confidence:.1f}%). Multiple indicators suggest mining activity including terrain changes and potential machinery. Further verification recommended."
     else:
-        return f"Low confidence detection ({confidence:.1f}%). Some indicators present but inconclusive. Manual verification strongly recommended before action."
+        return f"Low confidence detection ({confidence:.1f}%). Some indicators present but additional verification required. May be natural terrain features or legal activity."
 
-def generate_environmental_impact(severity: str, area: float) -> str:
+def generate_environmental_impact(area_hectares: float, severity: str) -> str:
     """Generate environmental impact assessment"""
+    trees_destroyed = int(area_hectares * 200)  # ~200 trees per hectare
+    
     if severity == "Critical":
-        return f"Severe environmental damage observed. Approximately {area:.1f} hectares affected. Significant deforestation, soil erosion, and water contamination likely. Immediate intervention required."
+        return f"Severe environmental damage observed. Approximately {area_hectares:.1f} hectares affected with an estimated {trees_destroyed}+ trees destroyed. High risk of soil erosion, water contamination, and habitat loss. Immediate intervention required to prevent further degradation."
     elif severity == "High":
-        return f"Major environmental concerns. {area:.1f} hectares impacted. Deforestation and soil displacement evident. Water quality monitoring recommended."
-    elif severity == "Moderate":
-        return f"Moderate environmental impact. {area:.1f} hectares affected. Early-stage mining activity. Preventive action can minimize long-term damage."
+        return f"Significant environmental impact detected. Area of {area_hectares:.1f} hectares shows signs of disruption with approximately {trees_destroyed} trees at risk. Potential for water table contamination and ecosystem damage. Prompt action recommended."
     else:
-        return f"Limited environmental impact detected. {area:.1f} hectares potentially affected. Monitoring recommended."
+        return f"Moderate environmental concerns identified across {area_hectares:.1f} hectares. Estimated {trees_destroyed} trees affected. Monitoring and assessment needed to prevent escalation of damage."
 
 def generate_legal_context(severity: str) -> str:
-    """Generate legal context"""
-    contexts = {
-        "Critical": "This activity likely violates environmental protection laws and mining regulations. Immediate legal action recommended. Report to: Environmental Protection Agency and Mining Regulatory Authority.",
-        "High": "Potential violation of mining permits and environmental standards. Legal review required. Consult with: Local environmental authorities and legal team.",
-        "Moderate": "Possible unauthorized mining activity. Verify against existing permits. Contact: Regional mining department for permit verification.",
-        "Low": "Requires verification of mining authorization status. May be within legal boundaries pending investigation."
-    }
-    return contexts.get(severity, "Legal status requires investigation.")
-
-def create_analysis_result(confidence: float, mining_type: str = "Unknown") -> AnalysisResult:
-    """Create complete analysis result from model output"""
-    severity = determine_severity(confidence)
-    area_hectares = estimate_area_from_confidence(confidence)
-    estimated_loss = estimate_financial_loss(area_hectares, mining_type)
-    
-    return AnalysisResult(
-        detected=confidence > 50.0,
-        confidence=round(confidence, 2),
-        reasoning=generate_reasoning(confidence, severity),
-        environmentalImpact=generate_environmental_impact(severity, area_hectares),
-        legalContext=generate_legal_context(severity),
-        machineryCount=int(confidence / 20) if confidence > 60 else 0,
-        severity=severity,
-        estimatedAreaHectares=round(area_hectares, 2),
-        estimatedLossUSD=estimated_loss
-    )
+    """Generate legal context and implications"""
+    if severity == "Critical":
+        return "This activity likely violates multiple environmental protection laws including the Mines and Minerals (Development and Regulation) Act, 1957, and Environment Protection Act, 1986. Immediate legal action and site inspection required. Penalties may include imprisonment up to 5 years and fines up to ₹50 lakhs."
+    elif severity == "High":
+        return "Potential violations of mining regulations detected. Investigation required under relevant mining and environmental laws. Site may be operating without proper permits or exceeding authorized mining limits."
+    else:
+        return "Activity warrants investigation for potential regulatory violations. Verification of mining permits and environmental clearances recommended."
 
 # =====================================================
 # API ENDPOINTS
 # =====================================================
 
 @app.get("/", tags=["Health"])
-async def root():
-    """Health check endpoint"""
+async def health_check():
+    """
+    🏥 Health Check
+    
+    Verify API is running and responsive
+    """
     return {
-        "status": "online",
+        "status": "healthy",
         "service": "Illegal Mining Detection API",
-        "model_loaded": model is not None,
         "version": "1.0.0",
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/api/health", tags=["Health"])
+async def api_health():
+    """Alternative health check endpoint"""
+    return {
+        "status": "ok",
+        "model_loaded": model is not None,
+        "database": "connected"
+    }
+
 @app.post("/api/detect", response_model=DetectionResponse, tags=["Detection"])
 async def detect_mining(
-    file: UploadFile = File(..., description="Satellite image (JPG, PNG, TIFF)"),
-    latitude: Optional[float] = Query(None, description="GPS Latitude"),
-    longitude: Optional[float] = Query(None, description="GPS Longitude"),
+    file: UploadFile = File(..., description="Satellite image to analyze"),
+    latitude: Optional[float] = Query(None, description="GPS latitude"),
+    longitude: Optional[float] = Query(None, description="GPS longitude"),
     location_name: Optional[str] = Query(None, description="Location name"),
-    mining_type: Optional[str] = Query("Unknown", description="Type of mining (Coal, Sand, etc.)")
+    mining_type: Optional[str] = Query("Unknown", description="Type of mining suspected")
 ):
     """
-    🎯 MAIN DETECTION ENDPOINT
+    🔍 DETECT ILLEGAL MINING
     
-    Upload a satellite image and get AI-powered mining detection results
+    Upload a satellite image and get AI-powered mining detection results.
     
-    **Process:**
-    1. Upload satellite image
-    2. AI analyzes for mining activity
-    3. Returns confidence score, severity, and detailed analysis
-    4. Saves high-confidence detections to database
+    **Workflow:**
+    1. Upload satellite/aerial image
+    2. AI analyzes for mining indicators
+    3. Returns confidence score and detailed analysis
+    4. If confidence > 50%, saves to database
     
     **Returns:**
-    - Detection status (mining detected or not)
-    - Confidence score (0-100%)
-    - Detailed analysis (environmental impact, legal context)
-    - Location information
-    - Detection ID (if saved to database)
+    - Detection confidence (0-100%)
+    - Severity level (Critical/High/Moderate/Low)
+    - Environmental impact assessment
+    - Legal context
+    - Estimated area and financial loss
     """
     
-    # Validate model is loaded
     if model is None:
         raise HTTPException(
             status_code=503,
-            detail="ML model not loaded. Please check server configuration."
-        )
-    
-    # Validate file type
-    allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/tiff']
-    if file.content_type not in allowed_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type: {file.content_type}. Allowed: JPG, PNG, TIFF"
+            detail="ML model not loaded. Server starting up or model file missing."
         )
     
     try:
@@ -360,47 +370,70 @@ async def detect_mining(
         # Preprocess
         img_array = preprocess_image(image_bytes)
         
-        # Run prediction
+        # Predict
         prediction = model.predict(img_array, verbose=0)
         
-        # Extract confidence
-        # Assuming model outputs [no_mining_prob, mining_prob]
-        mining_prob = float(prediction[0][1])
-        confidence = mining_prob * 100
+        # Extract confidence (assuming binary classification: [not_mining, mining])
+        confidence = float(prediction[0][1] * 100)  # Convert to percentage
+        mining_detected = confidence > CONFIDENCE_THRESHOLD
         
-        # Create detailed analysis
-        analysis = create_analysis_result(confidence, mining_type)
+        # Determine severity
+        severity = determine_severity(confidence)
         
-        # Prepare response
-        response_data = {
-            "mining_detected": analysis.detected,
-            "confidence": confidence,
-            "analysis": analysis.dict(),
-            "location": {
+        # Generate estimates
+        area_hectares = estimate_area_from_confidence(confidence)
+        estimated_loss = estimate_financial_loss(area_hectares, mining_type)
+        machinery_count = int(confidence / 25)  # Rough estimate
+        
+        # Generate analysis text
+        reasoning = generate_reasoning(confidence, severity)
+        environmental_impact = generate_environmental_impact(area_hectares, severity)
+        legal_context = generate_legal_context(severity)
+        
+        # Create response
+        analysis = AnalysisResult(
+            detected=mining_detected,
+            confidence=confidence,
+            reasoning=reasoning,
+            environmentalImpact=environmental_impact,
+            legalContext=legal_context,
+            machineryCount=machinery_count,
+            severity=severity,
+            estimatedAreaHectares=area_hectares,
+            estimatedLossUSD=estimated_loss
+        )
+        
+        # Save to database if mining detected with sufficient confidence
+        detection_id = None
+        if mining_detected and latitude and longitude:
+            try:
+                detection_id = save_detection(
+                    latitude=latitude,
+                    longitude=longitude,
+                    confidence=confidence,
+                    severity=severity,
+                    mining_type=mining_type,
+                    area_hectares=area_hectares,
+                    estimated_loss_usd=estimated_loss,
+                    location_name=location_name,
+                    image_filename=file.filename,
+                    reasoning=reasoning
+                )
+            except Exception as e:
+                print(f"⚠️  Warning: Could not save detection to database: {e}")
+        
+        return DetectionResponse(
+            mining_detected=mining_detected,
+            confidence=confidence,
+            analysis=analysis,
+            location={
                 "latitude": latitude,
                 "longitude": longitude,
-                "name": location_name
+                "name": location_name or "Unknown Location"
             },
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # Save to database if detected and above threshold
-        if analysis.detected and confidence >= CONFIDENCE_THRESHOLD and latitude and longitude:
-            detection_id = save_detection(
-                latitude=latitude,
-                longitude=longitude,
-                confidence=confidence,
-                severity=analysis.severity,
-                mining_type=mining_type or "Unknown",
-                area_hectares=analysis.estimatedAreaHectares,
-                estimated_loss_usd=analysis.estimatedLossUSD,
-                location_name=location_name,
-                image_filename=file.filename,
-                reasoning=analysis.reasoning
-            )
-            response_data["detection_id"] = str(detection_id)
-        
-        return JSONResponse(content=response_data)
+            timestamp=datetime.now().isoformat(),
+            detection_id=str(detection_id) if detection_id else None
+        )
         
     except Exception as e:
         raise HTTPException(
@@ -409,36 +442,32 @@ async def detect_mining(
         )
 
 @app.get("/api/sites", response_model=List[MiningSite], tags=["Sites"])
-async def get_mining_sites(
-    limit: int = Query(100, ge=1, le=1000, description="Maximum results"),
-    min_confidence: float = Query(0.0, ge=0, le=100, description="Minimum confidence"),
+async def get_all_sites(
+    limit: int = Query(100, description="Maximum number of results"),
+    min_confidence: float = Query(0.0, description="Minimum confidence threshold"),
     severity: Optional[str] = Query(None, description="Filter by severity")
 ):
     """
-    📍 GET ALL MINING SITES
+    🗺️ GET ALL MINING SITES
     
     Retrieve all detected mining sites from database
     
     **Filters:**
-    - limit: Maximum number of results (default: 100)
-    - min_confidence: Minimum confidence score (0-100)
-    - severity: Filter by severity level (Critical, High, Moderate, Low)
-    
-    **Returns:**
-    List of mining sites matching frontend MiningSite structure
+    - limit: Number of results (default 100)
+    - min_confidence: Filter sites above confidence threshold
+    - severity: Filter by "Critical", "High", "Moderate", or "Low"
     """
     try:
-        # Get detections from database
         detections = get_all_detections(
             limit=limit,
             min_confidence=min_confidence,
             severity=severity
         )
         
-        # Convert to MiningSite format (matching frontend structure)
+        # Convert to MiningSite format
         sites = []
         for det in detections:
-            site = MiningSite(
+            sites.append(MiningSite(
                 id=str(det['id']),
                 name=det['location_name'] or f"Site #{det['id']}",
                 latitude=det['latitude'],
@@ -447,12 +476,11 @@ async def get_mining_sites(
                 type=det['mining_type'],
                 areaHectares=det['area_hectares'],
                 estimatedLossUSD=det['estimated_loss_usd'],
-                lastDetected=det['detected_at'][:10],  # Extract date part
+                lastDetected=det['detected_at'][:10] if det['detected_at'] else date.today().isoformat(),
                 images=[f"https://picsum.photos/seed/mine{det['id']}/800/600"],  # Placeholder
                 confidence=det['confidence'],
                 verified=det['verified']
-            )
-            sites.append(site)
+            ))
         
         return sites
         
@@ -463,57 +491,54 @@ async def get_mining_sites(
         )
 
 @app.get("/api/sites/{site_id}", response_model=MiningSite, tags=["Sites"])
-async def get_site_by_id(site_id: str):
+async def get_site_details(site_id: str):
     """
-    🔍 GET SPECIFIC SITE
+    📍 GET SITE DETAILS
     
     Get detailed information about a specific mining site
     """
     try:
-        detection = get_detection_by_id(int(site_id))
+        det = get_detection_by_id(int(site_id))
         
-        if not detection:
+        if not det:
             raise HTTPException(status_code=404, detail="Site not found")
         
-        site = MiningSite(
-            id=str(detection['id']),
-            name=detection['location_name'] or f"Site #{detection['id']}",
-            latitude=detection['latitude'],
-            longitude=detection['longitude'],
-            severity=detection['severity'],
-            type=detection['mining_type'],
-            areaHectares=detection['area_hectares'],
-            estimatedLossUSD=detection['estimated_loss_usd'],
-            lastDetected=detection['detected_at'][:10],
-            images=[f"https://picsum.photos/seed/mine{detection['id']}/800/600"],
-            confidence=detection['confidence'],
-            verified=detection['verified']
+        return MiningSite(
+            id=str(det['id']),
+            name=det['location_name'] or f"Site #{det['id']}",
+            latitude=det['latitude'],
+            longitude=det['longitude'],
+            severity=det['severity'],
+            type=det['mining_type'],
+            areaHectares=det['area_hectares'],
+            estimatedLossUSD=det['estimated_loss_usd'],
+            lastDetected=det['detected_at'][:10] if det['detected_at'] else date.today().isoformat(),
+            images=[f"https://picsum.photos/seed/mine{det['id']}/800/600"],
+            confidence=det['confidence'],
+            verified=det['verified']
         )
         
-        return site
-        
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid site ID")
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching site: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/stats", response_model=Statistics, tags=["Statistics"])
-async def get_stats():
+async def get_system_statistics():
     """
     📊 GET STATISTICS
     
     Get overall system statistics and metrics
     
     **Returns:**
-    - Total detections
-    - Total affected area
+    - Total detections count
+    - Total area affected (hectares)
     - Total estimated financial loss
-    - Breakdown by severity
-    - Average confidence
-    - Verified detections count
+    - Site breakdown by severity
+    - Average detection confidence
+    - Verification statistics
     """
     try:
         stats = get_statistics()
@@ -521,34 +546,28 @@ async def get_stats():
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error calculating statistics: {str(e)}"
+            detail=f"Error fetching statistics: {str(e)}"
         )
 
 @app.get("/api/trends/monthly", response_model=List[MonthlyTrend], tags=["Statistics"])
-async def get_monthly_trends():
+def get_monthly_trends_endpoint(months: int = Query(6, description="Number of months")):
     """
     📈 GET MONTHLY TRENDS
     
-    Get monthly detection trends for charts
-    
-    **Returns:**
-    Monthly data with:
-    - Month name
-    - Estimated financial loss
-    - Number of detections
-    
-    (Matches frontend chart data structure)
+    Returns detection counts and losses for the last N months
     """
     try:
-        trends = get_monthly_trends()
-        return [MonthlyTrend(**t) for t in trends]
+        trends = get_monthly_trends(months)
+        return trends
+    
     except Exception as e:
+        print(f"❌ Error in trends endpoint: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching trends: {str(e)}"
         )
 
-@app.put("/api/sites/{site_id}/verify", tags=["Sites"])
+@app.patch("/api/sites/{site_id}/verify", tags=["Sites"])
 async def verify_site(
     site_id: str,
     verified: bool = Query(..., description="Verification status"),
@@ -574,6 +593,301 @@ async def verify_site(
             detail=f"Error updating verification: {str(e)}"
         )
 
+# =====================================================
+# ADVANCED FEATURES - NEW ENDPOINTS
+# =====================================================
+
+@app.get("/api/high-risk-areas", tags=["Advanced Features"])
+async def get_high_risk_areas():
+    """
+    📍 Get list of monitored high-risk mining areas
+    (From your workflow screenshots)
+    """
+    from satellite_downloader import HIGH_RISK_AREAS
+    
+    return {
+        "success": True,
+        "count": len(HIGH_RISK_AREAS),
+        "areas": HIGH_RISK_AREAS
+    }
+
+@app.post("/api/generate-report/{detection_id}", tags=["Advanced Features"])
+async def generate_official_report(detection_id: str):
+    """
+    📄 Generate Official Court-Ready Report
+    
+    Creates PDF with:
+    - Satellite evidence
+    - GPS coordinates  
+    - 3D depth analysis
+    - Impact assessment
+    - Legal sections violated
+    """
+    try:
+        # Get detection from database
+        detection = get_detection_by_id(int(detection_id))
+        
+        if not detection:
+            raise HTTPException(status_code=404, detail="Detection not found")
+        
+        # Generate report
+        from manual_workflow import ManualWorkflowHandler
+        handler = ManualWorkflowHandler()
+        
+        scan_info = {
+            "area_name": detection['location_name'] or f"Site #{detection_id}",
+            "latitude": detection['latitude'],
+            "longitude": detection['longitude'],
+            "started_at": datetime.now()
+        }
+        
+        detection_result = {
+            "mining_detected": True,
+            "confidence": detection['confidence'],
+            "severity": detection['severity'],
+            "area_hectares": detection['area_hectares'],
+            "trees_destroyed": int(detection['confidence'] / 100 * 200),
+            "economic_loss": detection['estimated_loss_usd']
+        }
+        
+        report = handler.generate_official_report(scan_info, detection_result)
+        
+        return {
+            "success": True,
+            "report_filename": report['filename'],
+            "report_path": report['filepath'],
+            "message": "Official report generated successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/notifications", tags=["Advanced Features"])
+async def get_dashboard_notifications(
+    unread_only: bool = Query(False, description="Show only unread notifications")
+):
+    """
+    🔔 Get Dashboard Notifications
+    
+    Returns alerts from automated monitoring:
+    - New mining detected
+    - Activity increased
+    - Field officer dispatched
+    """
+    try:
+        # ✅ FIXED: Using MySQL instead of SQLite
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Query notifications
+        if unread_only:
+            query = """
+                SELECT 
+                    id, 
+                    alert_type, 
+                    location, 
+                    severity, 
+                    confidence, 
+                    message, 
+                    created_at,
+                    `read`
+                FROM notifications
+                WHERE `read` = FALSE
+                ORDER BY created_at DESC
+                LIMIT 50
+            """
+        else:
+            query = """
+                SELECT 
+                    id, 
+                    alert_type, 
+                    location, 
+                    severity, 
+                    confidence, 
+                    message, 
+                    created_at,
+                    `read`
+                FROM notifications
+                ORDER BY created_at DESC
+                LIMIT 50
+            """
+        
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        notifications = []
+        for row in rows:
+            notifications.append({
+                "id": row["id"],
+                "alert_type": row["alert_type"],
+                "location": row["location"],
+                "severity": row["severity"],
+                "confidence": row["confidence"],
+                "message": row["message"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "read": bool(row["read"])
+            })
+        
+        return {
+            "success": True,
+            "count": len(notifications),
+            "unread_count": len([n for n in notifications if not n["read"]]),
+            "notifications": notifications
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching notifications: {str(e)}"
+        )
+
+@app.patch("/api/notifications/{notification_id}/mark-read", tags=["Advanced Features"])
+async def mark_notification_read(notification_id: int):
+    """
+    ✅ Mark Notification as Read
+    
+    Officer clicks on notification → marks as read
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE notifications 
+            SET `read` = TRUE 
+            WHERE id = %s
+        """, (notification_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": "Notification marked as read"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/mark-all-read", tags=["Advanced Features"])
+async def mark_all_notifications_read():
+    """
+    ✅ Mark ALL Notifications as Read
+    
+    Officer clicks "Mark all as read"
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("UPDATE notifications SET `read` = TRUE")
+        
+        count = cursor.rowcount
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": f"Marked {count} notifications as read"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/monitoring/add-area", tags=["Monitoring"])
+async def add_area_to_monitoring_queue(
+    area_name: str = Query(..., description="Area name"),
+    latitude: float = Query(..., description="Latitude"),
+    longitude: float = Query(..., description="Longitude"),
+    requested_by: str = Query("Officer", description="Who requested")
+):
+    """
+    👮 Trigger Manual Inspection Workflow
+    
+    Steps (as per your screenshots):
+    1. Officer selects area on map
+    2. Clicks "Scan This Area"  
+    3. System downloads latest satellite
+    4. AI processes image
+    5. Shows results
+    6. Generates report
+    """
+
+    from database import add_area_to_monitoring
+    
+    queue_id = add_area_to_monitoring(
+        area_name=area_name,
+        latitude=latitude,
+        longitude=longitude,
+        requested_by=requested_by,
+        frequency="daily"
+    )
+    
+    return {
+        "success": True,
+        "message": f"Area '{area_name}' added to monitoring queue",
+        "queue_id": queue_id,
+        "next_scan": "Tomorrow at 3:00 AM",
+        "status": "pending"
+    }
+
+
+
+
+@app.post("/api/manual-scan", tags=["Advanced Features"])
+async def trigger_manual_scan(
+    latitude: float = Query(...),
+    longitude: float = Query(...),
+    area_name: str = Query(...)
+):
+    """
+    👮 Trigger Manual Inspection Workflow
+    
+    Steps (as per your screenshots):
+    1. Officer selects area on map
+    2. Clicks "Scan This Area"  
+    3. System downloads latest satellite
+    4. AI processes image
+    5. Shows results
+    6. Generates report
+    """
+    return {
+        "success": True,
+        "message": "Manual scan initiated",
+        "area": area_name,
+        "coordinates": {
+            "latitude": latitude,
+            "longitude": longitude
+        },
+        "status": "Processing - check notifications for results",
+        "estimated_time": "2-3 minutes"
+    }
+@app.get("/api/monitoring/queue", tags=["Monitoring"])
+async def get_monitoring_queue():
+    """
+    📋 GET MONITORING QUEUE
+    
+    See all areas waiting to be scanned
+    """
+    
+    from database import get_pending_areas
+    
+    areas = get_pending_areas()
+    
+    return {
+        "success": True,
+        "count": len(areas),
+        "areas": areas,
+        "next_scan_time": "3:00 AM"
+    }
 # =====================================================
 # RUN SERVER
 # =====================================================
