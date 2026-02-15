@@ -16,14 +16,14 @@ def daily_monitoring_job():
 
 
 # Original (runs at 3:00 AM):
-#schedule.every().day.at("03:00").do(daily_monitoring_job)
+schedule.every().day.at("03:00").do(daily_monitoring_job)
 
 # Change to run in 2 minutes from now:(for testing purpose)
-import datetime
-now = datetime.datetime.now()
-test_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-schedule.every().day.at(test_time).do(daily_monitoring_job)
-print(f"🧪 TEST MODE: Will run at {test_time}")
+# import datetime
+# now = datetime.datetime.now()
+# test_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
+# schedule.every().day.at(test_time).do(daily_monitoring_job)
+# print(f"🧪 TEST MODE: Will run at {test_time}")
 
 
 
