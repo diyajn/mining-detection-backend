@@ -10,7 +10,7 @@ def daily_monitoring_job():
 
 def start_scheduler():
     # Set your fixed scheduled time here in 24-hour HH:MM format
-    scheduled_time = "20:20"  # Change this to your desired daily time
+    scheduled_time = "20:30"  # Change this to your desired daily time
     
     # For testing, you can uncomment below to run 2 minutes from now:
     # now = datetime.datetime.now()
