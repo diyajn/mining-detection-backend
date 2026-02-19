@@ -16,7 +16,7 @@ def daily_monitoring_job():
 
 
 # Original (runs at 3:00 AM):
-schedule.every().day.at("03:00").do(daily_monitoring_job)
+schedule.every().day.at("16.25").do(daily_monitoring_job)
 
 # Change to run in 2 minutes from now:(for testing purpose)
 # import datetime
