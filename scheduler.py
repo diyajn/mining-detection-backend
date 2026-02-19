@@ -1,42 +1,28 @@
-"""
-Daily Scheduler - Runs monitoring at 3:00 AM
-Keep this running in background
-"""
-
 import schedule
 import time
+import datetime
 from automated_monitor import AutomatedMonitor
 
 def daily_monitoring_job():
-    """Run at 3:00 AM daily"""
-    print(f"\n⏰ Daily scan triggered at 3:00 AM")
+    print(f"\n⏰ Daily scan triggered at scheduled time!")
     monitor = AutomatedMonitor()
     monitor.run_daily_monitoring()
 
+def start_scheduler():
+    # Set your fixed scheduled time here in 24-hour HH:MM format
+    scheduled_time = "20:00"  # Change this to your desired daily time
+    
+    # For testing, you can uncomment below to run 2 minutes from now:
+    # now = datetime.datetime.now()
+    # scheduled_time = (now + datetime.timedelta(minutes=2)).strftime("%H:%M")
 
+    print(f"🧪 Scheduler will run daily monitoring at {scheduled_time}")
 
-# Original (runs at 3:00 AM):
-schedule.every().day.at("16:20").do(daily_monitoring_job)
+    # Schedule the daily job at this time
+    schedule.every().day.at(scheduled_time).do(daily_monitoring_job)
 
-# Change to run in 2 minutes from now:(for testing purpose)
-# import datetime
-# now = datetime.datetime.now()
-# test_time = (now + datetime.timedelta(minutes=1)).strftime("%H:%M")
-# schedule.every().day.at(test_time).do(daily_monitoring_job)
-# print(f"🧪 TEST MODE: Will run at {test_time}")
+    print("🕐 DAILY SCHEDULER STARTED - Waiting for scheduled time...")
 
-
-
-
-print("="*70)
-print("🕐 DAILY SCHEDULER STARTED")
-print("="*70)
-print("\n✅ Will run daily monitoring at 3:00 AM")
-print("⏰ Current time:", time.strftime("%H:%M:%S"))
-print("\n💡 Keep this window open (minimize it)")
-print("   Press Ctrl+C to stop\n")
-print("="*70 + "\n")
-
-while True:
-    schedule.run_pending()
-    time.sleep(60)  # Check every minute
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # check every second for precise triggering

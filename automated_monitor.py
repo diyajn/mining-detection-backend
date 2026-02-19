@@ -8,6 +8,20 @@ from datetime import datetime
 from typing import List, Dict
 import numpy as np
 from PIL import Image
+import mysql.connector
+# ===============================
+# DATABASE CONNECTION FUNCTION
+# ===============================
+
+def get_db_connection():
+    return mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME"),
+        port=int(os.getenv("DB_PORT")),
+        ssl_disabled=False
+    )
 
 # =====================================================
 # AUTOMATED MONITOR CLASS
@@ -105,16 +119,10 @@ class AutomatedMonitor:
         """
         print("\n🔍 Checking if mining is NEW or WORSENED...")
         
-        import mysql.connector
+       
         
         try:
-            conn = mysql.connector.connect(
-                host='localhost',
-                user='root',
-                password='Diyajain@27',
-                database='mining_detection'
-            )
-            
+            conn = get_db_connection()
             cursor = conn.cursor()
             alerts = []
             
@@ -171,16 +179,8 @@ class AutomatedMonitor:
         """Create notification in dashboard"""
         print(f"\n📊 Creating dashboard notification...")
         
-        import mysql.connector
-        
         try:
-            conn = mysql.connector.connect(
-                host='localhost',
-                user='root',
-                password='Diyajain@27',
-                database='mining_detection'
-            )
-            
+            conn = get_db_connection()
             cursor = conn.cursor()
             
             # Insert notification

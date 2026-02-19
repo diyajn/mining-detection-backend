@@ -24,6 +24,11 @@ app = FastAPI()
 model = None
 
 
+import threading
+from scheduler import start_scheduler
+
+
+
 
 from dotenv import load_dotenv
 
@@ -177,6 +182,7 @@ async def startup_event():
     print("🚀 ILLEGAL MINING DETECTION API - STARTING")
     print("="*60)
     
+    
     # Initialize database
     init_db()
     print("✅ Database initialized")
@@ -204,6 +210,12 @@ async def startup_event():
     print("📚 API Docs: http://localhost:8000/api/docs")
     print("🗺️  Health Check: http://localhost:8000/")
     print("="*60 + "\n")
+    # ✅ Start scheduler AFTER everything is ready
+    threading.Thread(target=start_scheduler, daemon=True).start()
+    print("✅ Background scheduler started")
+
+
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
