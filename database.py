@@ -167,7 +167,8 @@ def get_pending_areas():
             "id": row[0],
             "area_name": row[1],
             "latitude": row[2],
-            "longitude": row[3]
+            "longitude": row[3],
+            "scan_frequency":"20"
         })
     
     cursor.close()
