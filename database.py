@@ -490,6 +490,110 @@ def get_monthly_trends(months: int = 6) -> List[Dict]:
             for _ in range(months)
         ]
 
+
+def get_previous_detection(latitude: float, longitude: float, exclude_id: int = None, radius: float = 0.05) -> Optional[Dict]:
+    """
+    Get the most recent detection near the same location.
+    radius=0.05 degrees ≈ 5km
+    """
+    conn = get_connection()
+    if not conn:
+        return None
+
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+        SELECT id, location_name, latitude, longitude, confidence, severity,
+               mining_type, area_hectares, estimated_loss_usd, detected_at
+        FROM detections
+        WHERE ABS(latitude - %s) < %s AND ABS(longitude - %s) < %s
+    """
+    params = [latitude, radius, longitude, radius]
+
+    if exclude_id:
+        query += " AND id != %s"
+        params.append(exclude_id)
+
+    query += " ORDER BY detected_at DESC LIMIT 1"
+
+    cursor.execute(query, params)
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "id": row["id"],
+        "location_name": row["location_name"],
+        "latitude": row["latitude"],
+        "longitude": row["longitude"],
+        "confidence": row["confidence"],
+        "severity": row["severity"],
+        "mining_type": row["mining_type"],
+        "area_hectares": row["area_hectares"],
+        "estimated_loss_usd": row["estimated_loss_usd"],
+        "detected_at": row["detected_at"].isoformat() if row["detected_at"] else None
+    }
+
+
+def compare_detections(current: Dict, previous: Dict) -> Dict:
+    """
+    Compare current detection against previous one at same location.
+    Returns a structured diff of all key fields.
+    """
+    def pct_change(curr, prev):
+        if not prev or prev == 0:
+            return None
+        return round(((curr - prev) / prev) * 100, 1)
+
+    severity_rank = {"Low": 1, "Moderate": 2, "High": 3, "Critical": 4}
+    curr_sev = severity_rank.get(current.get("severity"), 0)
+    prev_sev = severity_rank.get(previous.get("severity"), 0)
+
+    # Days between detections
+    days_apart = None
+    try:
+        fmt = "%Y-%m-%dT%H:%M:%S"
+        curr_date = datetime.fromisoformat(current["detected_at"])
+        prev_date = datetime.fromisoformat(previous["detected_at"])
+        days_apart = (curr_date - prev_date).days
+    except Exception:
+        pass
+
+    return {
+        "previous_detection_id": previous["id"],
+        "days_since_last_detection": days_apart,
+        "changes": {
+            "confidence": {
+                "previous": previous.get("confidence"),
+                "current": current.get("confidence"),
+                "change_percent": pct_change(current.get("confidence", 0), previous.get("confidence", 0)),
+                "trend": "increased" if current.get("confidence", 0) > previous.get("confidence", 0) else "decreased"
+            },
+            "area_hectares": {
+                "previous": previous.get("area_hectares"),
+                "current": current.get("area_hectares"),
+                "change_percent": pct_change(current.get("area_hectares", 0), previous.get("area_hectares", 0)),
+                "trend": "expanded" if current.get("area_hectares", 0) > previous.get("area_hectares", 0) else "shrunk"
+            },
+            "estimated_loss_usd": {
+                "previous": previous.get("estimated_loss_usd"),
+                "current": current.get("estimated_loss_usd"),
+                "change_percent": pct_change(current.get("estimated_loss_usd", 0), previous.get("estimated_loss_usd", 0))
+            },
+            "severity": {
+                "previous": previous.get("severity"),
+                "current": current.get("severity"),
+                "worsened": curr_sev > prev_sev,
+                "improved": curr_sev < prev_sev,
+                "unchanged": curr_sev == prev_sev
+            }
+        }
+    }
+
+
 # =====================================================
 # TESTING
 # =====================================================

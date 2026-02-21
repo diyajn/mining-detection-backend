@@ -40,13 +40,15 @@ load_dotenv()
 
 # Import our modules (we'll create these)
 from database import (
-    init_db, 
-    save_detection, 
+    init_db,
+    save_detection,
     get_all_detections,
     get_detection_by_id,
     get_statistics,
     get_monthly_trends,
-    update_detection_verification
+    update_detection_verification,
+    get_previous_detection,   # ADD THIS
+    compare_detections        # ADD THIS
 )
 
 # Allow frontend connection
@@ -907,6 +909,56 @@ async def get_monitoring_queue():
         "areas": areas,
         "next_scan_time": "3:00 AM"
     }
+    
+@app.get("/api/sites/{site_id}/compare", tags=["Sites"])
+async def compare_site_with_previous(site_id: str):
+    """
+    🔄 COMPARE DETECTION WITH PREVIOUS ONE AT SAME LOCATION
+    
+    When same mining area is detected again, shows what changed:
+    - Confidence increase/decrease
+    - Area expansion/shrinkage  
+    - Severity worsened or improved
+    - Estimated loss change
+    - Days since last detection
+    """
+    try:
+        current = get_detection_by_id(int(site_id))
+        if not current:
+            raise HTTPException(status_code=404, detail="Detection not found")
+
+        previous = get_previous_detection(
+            latitude=current["latitude"],
+            longitude=current["longitude"],
+            exclude_id=current["id"]
+        )
+
+        if not previous:
+            return {
+                "success": True,
+                "site_id": site_id,
+                "is_first_detection": True,
+                "current": current,
+                "comparison": None,
+                "message": "This is the first detection at this location. No previous data to compare."
+            }
+
+        comparison = compare_detections(current, previous)
+
+        return {
+            "success": True,
+            "site_id": site_id,
+            "is_first_detection": False,
+            "current": current,
+            "comparison": comparison
+        }
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid site ID")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 # =====================================================
 # RUN SERVER
 # =====================================================
